@@ -559,6 +559,7 @@ ERL_NIF_TERM ebdb_nifs_close_cursor(ErlNifEnv* env, int argc, const ERL_NIF_TERM
   }
 
   err = cursor_handle->cursor->close (cursor_handle->cursor);
+  cursor_handle->cursor = NULL;
   if (err != 0) {
     return make_error_tuple(env, err);
   }
