@@ -21,6 +21,7 @@
 -export([db_open_env/2, db_open/6, db_close/2]).
 -export([db_get/4]).
 -export([db_put/5]).
+-export([cursor_open/3, cursor_close/1]).
 -export([txn_begin/1,txn_begin/2,txn_begin/3,txn_commit/1,txn_commit/2,txn_abort/1]).
 
 -ifdef(TEST).
@@ -120,6 +121,11 @@ txn_abort(_Txn) ->
     ?missing_nif.
 
 
+cursor_open(_DB, _Txn, _Flags) ->
+    ?missing_nif.
+
+cursor_close(_Cursor) ->
+    ?missing_nif.
 
 -ifdef(TEST).
 

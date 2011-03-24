@@ -549,6 +549,58 @@ ERL_NIF_TERM ebdb_nifs_db_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
   return make_error_tuple(env, err);
 }
 
+ERL_NIF_TERM ebdb_nifs_close_cursor(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+  ebdb_cursor_handle *cursor_handle;
+  int err;
+
+  if ( !get_cursor_handle(env, argv[0], &cursor_handle) ) {
+    return enif_make_badarg(env);
+  }
+
+  err = cursor_handle->cursor->close (cursor_handle->cursor);
+  if (err != 0) {
+    return make_error_tuple(env, err);
+  }
+
+  return ATOM_OK;
+}
+
+ERL_NIF_TERM ebdb_nifs_open_cursor(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+  ebdb_db_handle *db_handle;
+  ebdb_txn_handle *txn_handle;
+  ebdb_cursor_handle *cursor_handle;
+  u_int32_t flags;
+  int err;
+
+  if (   !get_db_handle(env, argv[0], &db_handle) 
+         || !get_txn_handle(env, argv[1], &txn_handle) || txn_handle == NULL
+         || !decode_flags(env, argv[2], &flags)) {
+    return enif_make_badarg(env);
+  }
+
+  cursor_handle = enif_alloc_resource(ebdb_cursor_RESOURCE,
+                                      sizeof(ebdb_cursor_handle));
+
+  if (cursor_handle == NULL) {
+    return make_error_tuple(env, ENOMEM);
+  }
+
+  err = db_handle->dbp->cursor(db_handle->dbp,
+                               txn_handle->tid,
+                               &cursor_handle->cursor,
+                               flags);
+
+  if (err != 0) {
+    enif_release_resource(cursor_handle);
+    return make_error_tuple(env, err);
+  }
+
+  ERL_NIF_TERM result = enif_make_resource(env, cursor_handle);
+  enif_release_resource(cursor_handle);
+  return enif_make_tuple2(env, ATOM_OK, result);  
+}
 
 ERL_NIF_TERM ebdb_nifs_txn_begin(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -784,10 +836,15 @@ static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 static ErlNifFunc nif_funcs[] =
 {
     {"db_open_env", 2, ebdb_nifs_db_open_env},
+
     {"db_open", 6, ebdb_nifs_db_open},
     {"db_close", 2, ebdb_nifs_db_close},
     {"db_get", 4, ebdb_nifs_db_get},
     {"db_put", 5, ebdb_nifs_db_put},
+
+    {"cursor_open", 3, ebdb_nifs_open_cursor},
+    {"cursor_close", 1, ebdb_nifs_close_cursor},
+
     {"txn_begin", 3, ebdb_nifs_txn_begin},
     {"txn_commit", 2, ebdb_nifs_txn_commit},
     {"txn_abort", 1, ebdb_nifs_txn_abort},
