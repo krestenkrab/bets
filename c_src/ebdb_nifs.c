@@ -32,6 +32,7 @@ ERL_NIF_TERM ebdb_nifs_db_create (ErlNifEnv* env, int argc, const ERL_NIF_TERM a
 static ErlNifResourceType* ebdb_db_RESOURCE;
 static ErlNifResourceType* ebdb_env_RESOURCE;
 static ErlNifResourceType* ebdb_txn_RESOURCE;
+static ErlNifResourceType* ebdb_cursor_RESOURCE;
 
 static ErlNifTSDKey ebdb_buffer_TSD;
 
@@ -103,6 +104,10 @@ typedef struct {
 typedef struct {
   DB_TXN *tid;
 } ebdb_txn_handle;
+
+typedef struct {
+  DBC *cursor;
+} ebdb_cursor_handle;
 
 typedef struct {
   DB *dbp;
@@ -292,6 +297,14 @@ static int get_env_handle(ErlNifEnv* env, ERL_NIF_TERM arg, ebdb_env_handle **ha
     if (!enif_get_resource(env, arg, ebdb_env_RESOURCE, (void**)handlep)) {
       return 0;
     }
+  }
+  return 1;
+}
+
+static int get_cursor_handle(ErlNifEnv* env, ERL_NIF_TERM arg, ebdb_cursor_handle **handlep) 
+{
+  if (!enif_get_resource(env, arg, ebdb_cursor_RESOURCE, (void**)handlep)) {
+    return 0;
   }
   return 1;
 }
@@ -630,6 +643,17 @@ static void ebdb_db_resource_cleanup(ErlNifEnv* env, void* arg)
   
 }
 
+static void ebdb_cursor_resource_cleanup(ErlNifEnv* env, void* arg)
+{
+  ebdb_cursor_handle* handle = (ebdb_cursor_handle*)arg;
+
+  if (handle->cursor != 0) {
+    handle->cursor->close( handle->cursor );
+    handle->cursor = 0;
+  }
+
+}
+
 
 
 static void ebdb_env_resource_cleanup(ErlNifEnv* env, void* arg)
@@ -664,6 +688,14 @@ static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
      "ebdb",
      "db_resource",
      &ebdb_db_resource_cleanup,
+     ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER,
+     0);
+
+  ebdb_cursor_RESOURCE = enif_open_resource_type
+    (env, 
+     "ebdb",
+     "cursor_resource",
+     &ebdb_cursor_resource_cleanup,
      ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER,
      0);
 
