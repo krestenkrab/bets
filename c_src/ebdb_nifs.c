@@ -262,6 +262,7 @@ ERL_NIF_TERM make_error_tuple(ErlNifEnv* env, int err) {
 
 ERL_NIF_TERM ebdb_nifs_db_open_env(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
+  DB_ENV *db_env;
   char dirname[4096];
   ebdb_env_handle* handle;
   u_int32_t flags;
@@ -276,15 +277,20 @@ ERL_NIF_TERM ebdb_nifs_db_open_env(ErlNifEnv* env, int argc, const ERL_NIF_TERM 
     return enif_make_badarg(env);
   }
 
-  handle = enif_alloc_resource(ebdb_env_RESOURCE,
-			       sizeof(ebdb_env_handle));
-  
-  err=db_env_create(&handle->envp, 0);
+  err=db_env_create(&db_env, 0);
   if ( err != 0 ) {
-    enif_release_resource(handle);
     return make_error_tuple(env, err);
   }
 
+  handle = enif_alloc_resource(ebdb_env_RESOURCE,
+			       sizeof(ebdb_env_handle));
+  if (handle == NULL) {
+    db_env->close(db_env, 0);
+    return make_error_tuple(env, ENOMEM);
+  }
+
+  handle->envp = db_env;
+  
   err=handle->envp->open( handle->envp, dirname, flags, 0 );
   if (err != 0) {
     enif_release_resource(handle);
@@ -345,6 +351,7 @@ static ERL_NIF_TERM ebdb_nifs_db_open(ErlNifEnv* env, int argc, const ERL_NIF_TE
   ebdb_txn_handle* txn_handle;
   u_int32_t flags;
   int err;
+  DB *db;
 
   if (!get_env_handle(env, argv[0], &env_handle)) {
     return enif_make_badarg(env);
@@ -381,28 +388,32 @@ static ERL_NIF_TERM ebdb_nifs_db_open(ErlNifEnv* env, int argc, const ERL_NIF_TE
     return enif_make_badarg(env);
   }
 
-  db_handle = enif_alloc_resource(ebdb_db_RESOURCE,
-			       sizeof(ebdb_db_handle));
-  
-  err = db_create(&db_handle->dbp, 
+  err = db_create(&db, 
                   env_handle==NULL ? NULL : env_handle->envp, 
                   0);
   if (err != 0 ) {
-    enif_release_resource(db_handle);
     return make_error_tuple(env, err);
   }
 
+  db_handle = enif_alloc_resource(ebdb_db_RESOURCE,
+			       sizeof(ebdb_db_handle));
+  if (db_handle == NULL) {
+    db->close(db, 0);
+    return make_error_tuple(env, ENOMEM);
+  }
+  db_handle->dbp = db;
+  
   if (enif_is_identical(argv[4], ATOM_TRUE)) {
-    db_handle->dbp->set_flags(db_handle->dbp, DB_DUP);
+    db->set_flags(db, DB_DUP);
   }
 
-  err = db_handle->dbp->open( db_handle->dbp,
-                              txn_handle == NULL ? NULL : txn_handle->tid,
-                              filename,
-                              NULL,
-                              type,
-                              flags,
-                              0 );
+  err = db->open( db,
+                  txn_handle == NULL ? NULL : txn_handle->tid,
+                  filename,
+                  NULL,
+                  type,
+                  flags,
+                  0 );
   if (err != 0) {
     enif_release_resource(db_handle);
     return make_error_tuple(env, err);
@@ -602,6 +613,7 @@ ERL_NIF_TERM ebdb_nifs_open_cursor(ErlNifEnv* env, int argc, const ERL_NIF_TERM 
   ebdb_cursor_handle *cursor_handle;
   u_int32_t flags;
   int err;
+  DBC *cursor;
 
   if (   !get_db_handle(env, argv[0], &db_handle) 
          || !get_txn_handle(env, argv[1], &txn_handle)
@@ -610,22 +622,23 @@ ERL_NIF_TERM ebdb_nifs_open_cursor(ErlNifEnv* env, int argc, const ERL_NIF_TERM 
     return enif_make_badarg(env);
   }
 
-  cursor_handle = enif_alloc_resource(ebdb_cursor_RESOURCE,
-                                      sizeof(ebdb_cursor_handle));
-
-  if (cursor_handle == NULL) {
-    return make_error_tuple(env, ENOMEM);
-  }
-
   err = db_handle->dbp->cursor(db_handle->dbp,
                                txn_handle->tid,
-                               &cursor_handle->cursor,
+                               &cursor,
                                flags);
 
   if (err != 0) {
-    enif_release_resource(cursor_handle);
     return make_error_tuple(env, err);
   }
+
+  cursor_handle = enif_alloc_resource(ebdb_cursor_RESOURCE,
+                                      sizeof(ebdb_cursor_handle));
+  if (cursor_handle == NULL) {
+    cursor->close(cursor);
+    return make_error_tuple(env, ENOMEM);
+  }
+
+  cursor_handle->cursor = cursor;
 
   ERL_NIF_TERM result = enif_make_resource(env, cursor_handle);
   enif_release_resource(cursor_handle);
@@ -639,6 +652,7 @@ ERL_NIF_TERM ebdb_nifs_txn_begin(ErlNifEnv* env, int argc, const ERL_NIF_TERM ar
   ebdb_txn_handle *txn_handle;
   u_int32_t flags;
   int err;
+  DB_TXN *tx;
 
   if (   !get_env_handle(env, argv[0], &env_handle) 
          || env_handle==NULL // env must be given 
@@ -647,24 +661,26 @@ ERL_NIF_TERM ebdb_nifs_txn_begin(ErlNifEnv* env, int argc, const ERL_NIF_TERM ar
     return enif_make_badarg(env);
   }
 
-  txn_handle = enif_alloc_resource(ebdb_txn_RESOURCE,
-                                   sizeof(ebdb_txn_handle));
-
-  if (txn_handle == NULL) {
-    return make_error_tuple(env, ENOMEM);
-  }
-
   err = env_handle->envp->txn_begin(env_handle->envp,
                                     parent_txn_handle == NULL
                                     ? NULL
                                     : parent_txn_handle->tid,
-                                    &txn_handle->tid,
+                                    &tx,
                                     flags);
 
   if (err != 0) {
-    enif_release_resource(txn_handle);
     return make_error_tuple(env, err);
   }
+
+  txn_handle = enif_alloc_resource(ebdb_txn_RESOURCE,
+                                   sizeof(ebdb_txn_handle));
+
+  if (txn_handle == NULL) {
+    tx->abort(tx);
+    return make_error_tuple(env, ENOMEM);
+  }
+
+  txn_handle->tid = tx;
 
   ERL_NIF_TERM result = enif_make_resource(env, txn_handle);
   enif_release_resource(txn_handle);
