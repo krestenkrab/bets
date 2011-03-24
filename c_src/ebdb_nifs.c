@@ -274,7 +274,7 @@ ERL_NIF_TERM make_error_tuple(ErlNifEnv* env, int err) {
 }
 
 
-ERL_NIF_TERM ebdb_nifs_db_open_env(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+ERL_NIF_TERM ebdb_nifs_env_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
   DB_ENV *db_env;
   char dirname[4096];
@@ -957,7 +957,7 @@ static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 
 static ErlNifFunc nif_funcs[] =
 {
-    {"db_open_env", 2, ebdb_nifs_db_open_env},
+    {"env_open", 2, ebdb_nifs_env_open},
 
     {"db_open", 6, ebdb_nifs_db_open},
     {"db_close", 2, ebdb_nifs_db_close},

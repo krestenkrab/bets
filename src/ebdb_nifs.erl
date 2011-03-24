@@ -18,7 +18,7 @@
 
 -module(ebdb_nifs).
 
--export([db_open_env/2, db_open/6, db_close/2]).
+-export([env_open/2, db_open/6, db_close/2]).
 -export([db_get/4]).
 -export([db_put/5]).
 -export([cursor_open/3, cursor_close/1, cursor_get/3]).
@@ -68,8 +68,8 @@ init() ->
 
 -type access_method() :: btree | hash | queue | recno | unknown.
 
--spec db_open_env( string(), [ env_open_flag() ] ) -> {ok, env()}.
-db_open_env(_EnvHomeDir, _OpenFlags) ->
+-spec env_open( string(), [ env_open_flag() ] ) -> {ok, env()}.
+env_open(_EnvHomeDir, _OpenFlags) ->
     ?missing_nif.
 
 -spec db_open(env()|?NOENV, txn()|?NOTXN, string(), access_method(), boolean(), [ db_open_flag() ]) -> {ok, db()} | {error, term()}.
@@ -151,8 +151,8 @@ no_env_test() ->
 
 simple_test() ->
     
-    {ok, Env} = db_open_env("/tmp",
-                            [init_txn,create,recover,init_mpool,private,thread]),
+    {ok, Env} = env_open("/tmp",
+                         [init_txn,create,recover,init_mpool,private,thread]),
 
     {ok, TX} = txn_begin(Env),
     
