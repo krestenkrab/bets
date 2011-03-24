@@ -700,6 +700,9 @@ ERL_NIF_TERM ebdb_nifs_cursor_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
       || !enif_alloc_binary(key.size, &key_bin)) {
     return make_error_tuple(env, ENOMEM);
   }
+
+  memcpy(value_bin.data, value.data, value.size);
+  memcpy(key_bin.data, key.data, key.size);
     
   return enif_make_tuple3(env, 
                           ATOM_OK, 
