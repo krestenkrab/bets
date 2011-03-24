@@ -367,18 +367,13 @@ static ERL_NIF_TERM ebdb_nifs_db_open(ErlNifEnv* env, int argc, const ERL_NIF_TE
   int err;
   DB *db;
 
-  if (!get_env_handle(env, argv[0], &env_handle)) {
-    return enif_make_badarg(env);
-  }
-
-  if (!get_txn_handle(env, argv[1], &txn_handle)) {
-    return enif_make_badarg(env);
-  }
-
-  if (enif_get_string(env, argv[2], 
-		      &filename[0], sizeof(filename), ERL_NIF_LATIN1) <= 0) {
-    return enif_make_badarg(env);
-  }
+  if (!get_env_handle(env, argv[0], &env_handle)
+      || !get_txn_handle(env, argv[1], &txn_handle)
+      || enif_get_string(env, argv[2], 
+                         &filename[0], sizeof(filename), ERL_NIF_LATIN1) <= 0) 
+    {
+      return enif_make_badarg(env);
+    }
 
   DBTYPE type;
 
@@ -845,8 +840,8 @@ static void ebdb_txn_resource_cleanup(ErlNifEnv* env, void* arg)
 
 static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 {
-  printf("Initializing EBDB - Erlang API for Berkeley DB\n");
-  printf("Copyright (c) 2011 by Trifork.  All rights reserved.\n");
+  //  printf("Initializing EBDB - Erlang API for Berkeley DB\n");
+  //  printf("Copyright (c) 2011 by Trifork.  All rights reserved.\n");
 
   ebdb_db_RESOURCE = enif_open_resource_type
     (env, 
