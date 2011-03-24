@@ -167,7 +167,7 @@ simple_test() ->
     {error, notfound} = db_get(DB, ?NOTXN, <<"key2">>, []),
 
     {ok, TX2} = txn_begin(Env),
-    {ok, R} = db_open(Env, ?NOTXN, "recno.db", recno, false, [create,thread,auto_commit]),
+    {ok, R} = db_open(Env, TX2, "recno.db", recno, false, [create,thread]),
     {ok, C} = cursor_open(R, TX2, []),
     ok = cursor_close(C),
     ok = txn_commit(TX2),

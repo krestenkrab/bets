@@ -239,15 +239,22 @@ fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc) ->
 
 simple_test() ->
     
-    {ok, DB} = open("/tmp", [{create,true}]),
+    {ok, DB} = open("/tmp/xxx", [{create,true},ordered_bag]),
     insert(DB, {{<<"ab">>,1}, a}),
     insert(DB, {{<<"ac">>,2}, b}),
+    insert(DB, {{<<"ac">>,2}, b2}),
     insert(DB, {{<<"ac">>,3}, c}),
+    insert(DB, {{<<"ac">>,4}, x}),
+    insert(DB, {{<<"ac">>,5}, c}),
     insert(DB, {{<<"bc">>,4}, d}),
 
-    [{{<<"ac">>, 2}, b}] = lookup(DB, {<<"ac">>,2}),
+    [{{<<"ac">>,2},b2},{{<<"ac">>,2},b}] = lookup(DB, {<<"ac">>,2}),
+    [] = lookup(DB, {<<"ac">>,0}),
     
-%%    x = match(DB, {{<<"ac">>, '_'}, '$1'}),
+    %%[b2,c,x,c] = match(DB, {{<<"ac">>, '_'}, '$1'}),
+
+    List = fold(fun(V,Acc)->Acc++[V]end,[],DB),
+    7 = length(List),
 
     close(DB).
     
