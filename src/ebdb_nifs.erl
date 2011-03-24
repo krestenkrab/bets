@@ -18,7 +18,7 @@
 
 -module(ebdb_nifs).
 
--export([db_open_env/2, db_open/5, db_close/2]).
+-export([db_open_env/2, db_open/6, db_close/2]).
 -export([db_get/4]).
 -export([db_put/5]).
 -export([txn_begin/1,txn_begin/2,txn_begin/3,txn_commit/1,txn_commit/2,txn_abort/1]).
@@ -28,6 +28,8 @@
 -endif.
 
 -define(missing_nif, exit(missing_nif)).
+-define(NOTXN, undefined). 
+-define(NOENV, undefined). 
 
 %%
 %% public specs
@@ -68,8 +70,8 @@ init() ->
 db_open_env(_EnvHomeDir, _OpenFlags) ->
     ?missing_nif.
 
--spec db_open(env()|undefined, txn()|undefined, string(), access_method(), [ db_open_flag() ]) -> {ok, db()} | {error, term()}.
-db_open(_Env, _Txn, _FileName, _AccessMethod, _OpenFlags) ->
+-spec db_open(env()|?NOENV, txn()|?NOTXN, string(), access_method(), boolean(), [ db_open_flag() ]) -> {ok, db()} | {error, term()}.
+db_open(_Env, _Txn, _FileName, _AccessMethod, _AllowDups, _OpenFlags) ->
     ?missing_nif.
 
 -spec db_close(db(), [ db_close_flag() ]) -> {error, term()} | ok.
@@ -77,14 +79,14 @@ db_close(_DB, _Flags) ->
     ?missing_nif.
 
 -type db_get_flag() :: consume | consume_wait | read_committed | read_uncommitted | rwm.
--spec db_get(db(), txn()|undefined, binary(), [ db_get_flag() ]) -> 
+-spec db_get(db(), txn()|?NOTXN, binary(), [ db_get_flag() ]) -> 
     {ok, binary()} | {error, term()}. 
     
 db_get(_DB, _Txn, _KeyBin, _Flags) ->
     ?missing_nif.
 
 -type db_put_flag() :: append | nodupdata | nooverwrite | overwrite_dup.
--spec db_put(db(), txn()|undefined, binary(), binary(), [ db_put_flag() ]) -> 
+-spec db_put(db(), txn()|?NOTXN, binary(), binary(), [ db_put_flag() ]) -> 
     {ok, binary()} | {error, term()}. 
     
 db_put(_DB, _Txn, _KeyBin, _DataBin, _Flags) ->
@@ -93,18 +95,17 @@ db_put(_DB, _Txn, _KeyBin, _DataBin, _Flags) ->
 -type begin_txn_flag() ::
        read_committed | read_uncommitted | txn_bulk | txn_snapshot
      | txn_nosync | txn_sync
-     | txn_nowait | txn_wait
-     | txn_write_nosync .
+     | txn_nowait | txn_wait | txn_write_nosync .
 
 -spec txn_begin(env()) -> {ok, txn()} | {error, term()}.
 -spec txn_begin(env(), [ begin_txn_flag() ]) -> {ok, txn()} | {error, term()}.
--spec txn_begin(env(), txn()|undefined, [ begin_txn_flag() ]) -> {ok, txn()} | {error, term()}.
+-spec txn_begin(env(), txn()|?NOTXN, [ begin_txn_flag() ]) -> {ok, txn()} | {error, term()}.
     
 txn_begin(Env) ->
-    txn_begin(Env, undefined, []).
+    txn_begin(Env, ?NOTXN, []).
 
 txn_begin(Env, Flags) ->
-    txn_begin(Env, undefined, Flags).
+    txn_begin(Env, ?NOTXN, Flags).
 
 txn_begin(_Env, _ParentTxn, _Flags) ->
     ?missing_nif.
@@ -123,7 +124,7 @@ txn_abort(_Txn) ->
 -ifdef(TEST).
 
 no_env_test() ->
-    {ok, _} = db_open(undefined, undefined, "sample_noenv.db", btree, [create]).
+    {ok, _} = db_open(?NOENV, ?NOTXN, "sample_noenv.db", btree, false, [create]).
 
 simple_test() ->
     
@@ -132,14 +133,15 @@ simple_test() ->
 
     {ok, TX} = txn_begin(Env),
     
-    {ok, DB} = db_open(Env, TX, "sample.db", btree, 
+    {ok, DB} = db_open(Env, TX, "sample.db", hash, false,
                        [create,thread]),
 
     ok = db_put(DB, TX, <<"key">>, <<"value">>, []),
 
     ok = txn_commit(TX),
 
-    {ok, <<"value">>} = db_get(DB, undefined, <<"key">>, []),
+    {ok, <<"value">>} = db_get(DB, ?NOTXN, <<"key">>, []),
+    {error, notfound} = db_get(DB, ?NOTXN, <<"key2">>, []),
     
     ok = db_close(DB, [nosync]).
     

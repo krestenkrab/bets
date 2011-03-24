@@ -298,12 +298,8 @@ static int get_env_handle(ErlNifEnv* env, ERL_NIF_TERM arg, ebdb_env_handle **ha
 
 static int get_db_handle(ErlNifEnv* env, ERL_NIF_TERM arg, ebdb_db_handle **handlep) 
 {
-  if (enif_is_identical(arg, ATOM_UNDEFINED)) {
-    *handlep = NULL;
-  } else {
-    if (!enif_get_resource(env, arg, ebdb_db_RESOURCE, (void**)handlep)) {
-      return 0;
-    }
+  if (!enif_get_resource(env, arg, ebdb_db_RESOURCE, (void**)handlep)) {
+    return 0;
   }
   return 1;
 }
@@ -359,7 +355,9 @@ static ERL_NIF_TERM ebdb_nifs_db_open(ErlNifEnv* env, int argc, const ERL_NIF_TE
     return enif_make_badarg(env);
   }
 
-  if (!decode_flags(env, argv[4], &flags)) {
+  // argv[4] decoded below...
+
+  if (!decode_flags(env, argv[5], &flags)) {
     return enif_make_badarg(env);
   }
 
@@ -372,6 +370,10 @@ static ERL_NIF_TERM ebdb_nifs_db_open(ErlNifEnv* env, int argc, const ERL_NIF_TE
   if (err != 0 ) {
     enif_release_resource(db_handle);
     return make_error_tuple(env, err);
+  }
+
+  if (enif_is_identical(argv[4], ATOM_TRUE)) {
+    db_handle->dbp->set_flags(db_handle->dbp, DB_DUP);
   }
 
   err = db_handle->dbp->open( db_handle->dbp,
@@ -405,7 +407,7 @@ ERL_NIF_TERM ebdb_nifs_db_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM arg
   u_int32_t flags;
   int err;
 
-  if (   !get_db_handle(env, argv[0], &db_handle) || db_handle == NULL
+  if (   !get_db_handle(env, argv[0], &db_handle) 
          || !decode_flags(env, argv[1], &flags)) {
     return enif_make_badarg(env);
   }
@@ -428,7 +430,7 @@ ERL_NIF_TERM ebdb_nifs_db_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
   int err;
   DBT key, value;
 
-  if (!get_db_handle(env, argv[0], &db_handle) || db_handle == NULL
+  if (!get_db_handle(env, argv[0], &db_handle) 
       || !get_txn_handle(env, argv[1], &txn_handle)
       || !enif_inspect_binary(env, argv[2], &key_bin)
       || !decode_flags(env, argv[3], &flags)) 
@@ -503,7 +505,7 @@ ERL_NIF_TERM ebdb_nifs_db_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
   int err;
   DBT key, value;
 
-  if (!get_db_handle(env, argv[0], &db_handle) || db_handle == NULL
+  if (!get_db_handle(env, argv[0], &db_handle) 
       || !get_txn_handle(env, argv[1], &txn_handle)
       || !enif_inspect_binary(env, argv[2], &key_bin)
       || !enif_inspect_binary(env, argv[3], &value_bin)
@@ -750,7 +752,7 @@ static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 static ErlNifFunc nif_funcs[] =
 {
     {"db_open_env", 2, ebdb_nifs_db_open_env},
-    {"db_open", 5, ebdb_nifs_db_open},
+    {"db_open", 6, ebdb_nifs_db_open},
     {"db_close", 2, ebdb_nifs_db_close},
     {"db_get", 4, ebdb_nifs_db_get},
     {"db_put", 5, ebdb_nifs_db_put},
