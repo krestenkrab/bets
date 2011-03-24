@@ -298,6 +298,11 @@ ERL_NIF_TERM ebdb_nifs_env_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM arg
     return make_error_tuple(env, err);
   }
 
+  err=db_env->open( db_env, dirname, flags, 0 );
+  if (err != 0) {
+    return make_error_tuple(env, err);
+  }
+
   handle = enif_alloc_resource(ebdb_env_RESOURCE,
 			       sizeof(ebdb_env_handle));
   if (handle == NULL) {
@@ -306,13 +311,6 @@ ERL_NIF_TERM ebdb_nifs_env_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM arg
   }
 
   handle->envp = db_env;
-  
-  err=handle->envp->open( handle->envp, dirname, flags, 0 );
-  if (err != 0) {
-    enif_release_resource(handle);
-    return make_error_tuple(env, err);
-  }
-
   ERL_NIF_TERM result = enif_make_resource(env, handle);
   enif_release_resource(handle);
   return enif_make_tuple2(env, ATOM_OK, result);  
@@ -411,14 +409,6 @@ static ERL_NIF_TERM ebdb_nifs_db_open(ErlNifEnv* env, int argc, const ERL_NIF_TE
     return make_error_tuple(env, err);
   }
 
-  db_handle = enif_alloc_resource(ebdb_db_RESOURCE,
-			       sizeof(ebdb_db_handle));
-  if (db_handle == NULL) {
-    db->close(db, 0);
-    return make_error_tuple(env, ENOMEM);
-  }
-  db_handle->dbp = db;
-  
   if (enif_is_identical(argv[4], ATOM_TRUE)) {
     db->set_flags(db, DB_DUP);
   }
@@ -431,12 +421,16 @@ static ERL_NIF_TERM ebdb_nifs_db_open(ErlNifEnv* env, int argc, const ERL_NIF_TE
                   flags,
                   0 );
   if (err != 0) {
-    enif_release_resource(db_handle);
     return make_error_tuple(env, err);
   }
 
-  // make db_handle reference the env, so it is not
-  // garbage collected before the db handle
+  db_handle = enif_alloc_resource(ebdb_db_RESOURCE,
+			       sizeof(ebdb_db_handle));
+  if (db_handle == NULL) {
+    db->close(db, 0);
+    return make_error_tuple(env, ENOMEM);
+  }
+  db_handle->dbp = db;
   db_handle->env_handle = env_handle;
   if (env_handle != NULL) {
     enif_keep_resource(env_handle);
