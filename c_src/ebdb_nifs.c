@@ -524,20 +524,35 @@ ERL_NIF_TERM ebdb_nifs_db_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
   u_int32_t flags;
   int err;
   DBT key, value;
+  int is_append = 0;
 
   if (!get_db_handle(env, argv[0], &db_handle) 
       || !get_txn_handle(env, argv[1], &txn_handle)
-      || !enif_inspect_binary(env, argv[2], &key_bin)
+      || !decode_flags(env, argv[4], &flags)
+      || !(   (is_append = ((flags&DB_APPEND)==DB_APPEND))
+           || enif_inspect_binary(env, argv[2], &key_bin))
       || !enif_inspect_binary(env, argv[3], &value_bin)
-      || !decode_flags(env, argv[4], &flags)) 
+      ) 
     {
       return enif_make_badarg(env);
     }
 
-  key.data = key_bin.data;
-  key.size = key_bin.size;
-  key.ulen = key_bin.size;
-  key.flags = DB_DBT_USERMEM;
+  if (is_append) {
+    
+    if (!enif_alloc_binary(sizeof(db_recno_t), &key_bin)) {
+      return make_error_tuple(env, ENOMEM);
+    }
+
+    key.data = key_bin.data;
+    key.ulen = sizeof(db_recno_t);
+    key.flags = DB_DBT_USERMEM;
+
+  } else {
+    key.data = key_bin.data;
+    key.size = key_bin.size;
+    key.ulen = key_bin.size;
+    key.flags = DB_DBT_USERMEM;
+  }
 
   value.data = value_bin.data;
   value.size = value_bin.size;
@@ -550,8 +565,14 @@ ERL_NIF_TERM ebdb_nifs_db_put(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
                             &value,
                             flags);
 
-  if (err == 0) 
-    return ATOM_OK;
+  if (err == 0) {
+    if (is_append) {
+      ERL_NIF_TERM key = enif_make_binary(env, &key_bin);
+      return enif_make_tuple2(env, ATOM_OK, key);
+    } else {
+      return ATOM_OK;
+    }
+  }
 
   return make_error_tuple(env, err);
 }

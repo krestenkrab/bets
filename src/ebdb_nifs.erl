@@ -89,8 +89,16 @@ db_get(_DB, _Txn, _KeyBin, _Flags) ->
 
 -type db_put_flag() :: append | nodupdata | nooverwrite | overwrite_dup.
 -spec db_put(db(), txn()|?NOTXN, binary(), binary(), [ db_put_flag() ]) -> 
-    {ok, binary()} | {error, term()}. 
-    
+    ok | {ok, binary()} | {error, term()}. 
+
+%%@doc
+%% Store a key/value into the store
+%%
+%% When using option append (for queue and recno), the given argument
+%% Key is ignored, and the result is `{ok, Key}'; otherwise result is
+%% `ok'.
+%%
+%%@end    
 db_put(_DB, _Txn, _KeyBin, _DataBin, _Flags) ->
     ?missing_nif.
 
@@ -151,6 +159,14 @@ simple_test() ->
 
     {ok, <<"value">>} = db_get(DB, ?NOTXN, <<"key">>, []),
     {error, notfound} = db_get(DB, ?NOTXN, <<"key2">>, []),
+
+    {ok, TX2} = txn_begin(Env),
+    {ok, R} = db_open(Env, ?NOTXN, "recno.db", recno, false, [create,thread,auto_commit]),
+    {ok, C} = cursor_open(R, TX2, []),
+    ok = cursor_close(C),
+    ok = txn_commit(TX2),
+    
+    ok = db_close(R, []),
     
     ok = db_close(DB, [nosync]).
     
