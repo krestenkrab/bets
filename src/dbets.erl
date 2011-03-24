@@ -65,7 +65,7 @@ open(Directory, Options) ->
     {DB,Flags,Method} = process_options(Options, #db{}, DefaultFlags, hash),
     {ok, Env} = ebdb_nifs:db_open_env(Directory, 
                                       Flags),
-    {ok, Store} = ebdb_nifs:db_open(Env, undefined, "data.db", Method, DB#db.duplicates, [create,thread]),
+    {ok, Store} = ebdb_nifs:db_open(Env, undefined, "data.db", Method, DB#db.duplicates, [create,thread,auto_commit]),
     {ok, DB#db{ env=Env, store=Store }}.
 
 close(#db{}=DB) ->
@@ -222,6 +222,20 @@ fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc) ->
 
 %% ready for testing!
 
+simple_test() ->
+    
+    {ok, DB} = open("/tmp", [{create,true}]),
+    insert(DB, {{<<"ab">>,1}, a}),
+    insert(DB, {{<<"ac">>,2}, b}),
+    insert(DB, {{<<"ac">>,3}, c}),
+    insert(DB, {{<<"bc">>,4}, d}),
+
+    [{{<<"ac">>, 2}, b}] = lookup(DB, {<<"ac">>,2}),
+    
+%%    x = match(DB, {{<<"ac">>, '_'}, '$1'}),
+
+    close(DB).
+    
 
 -endif.
 
