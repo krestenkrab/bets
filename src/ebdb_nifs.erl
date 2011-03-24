@@ -28,7 +28,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(missing_nif, exit(missing_nif)).
+-define(missing_nif, erlang:nif_error(missing_nif)).
 -define(NOTXN, undefined). 
 -define(NOENV, undefined). 
 
