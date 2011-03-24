@@ -21,7 +21,7 @@
 -export([db_open_env/2, db_open/6, db_close/2]).
 -export([db_get/4]).
 -export([db_put/5]).
--export([cursor_open/3, cursor_close/1]).
+-export([cursor_open/3, cursor_close/1, cursor_get/3]).
 -export([txn_begin/1,txn_begin/2,txn_begin/3,txn_commit/1,txn_commit/2,txn_abort/1]).
 
 -ifdef(TEST).
@@ -68,7 +68,7 @@ init() ->
 
 -type access_method() :: btree | hash | queue | recno | unknown.
 
--spec db_open_env( string(), [ env_open_flag() ] ) -> env().
+-spec db_open_env( string(), [ env_open_flag() ] ) -> {ok, env()}.
 db_open_env(_EnvHomeDir, _OpenFlags) ->
     ?missing_nif.
 
@@ -131,11 +131,17 @@ txn_abort(_Txn) ->
 
 -type cursor_open_flags() :: cursor_bulk | read_committed | read_uncommitted
               | writecursor | txn_snapshot.
--spec cursor_open(db(), txn(), [cursor_open_flags()]) -> cursor().
+-spec cursor_open(db(), txn(), [cursor_open_flags()]) -> {ok, cursor()}.
 cursor_open(_DB, _Txn, _Flags) ->
     ?missing_nif.
 
 cursor_close(_Cursor) ->
+    ?missing_nif.
+
+-type cursor_get_flags() :: set | set_range | next | next_dup.
+-spec cursor_get(cursor(), binary(), [cursor_get_flags()]) ->
+    {ok, binary(), binary()} | {error, _}.
+cursor_get(_Cursor,_Key,_Flags) ->
     ?missing_nif.
 
 -ifdef(TEST).

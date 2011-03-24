@@ -25,6 +25,7 @@
 #include "erl_driver.h"
 
 #define BUFFER_SIZE (128*1024)
+#define MAX_KEY_SIZE (4*1024)
 
 ERL_NIF_TERM ebdb_nifs_db_create (ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 
@@ -37,6 +38,11 @@ static ErlNifResourceType* ebdb_cursor_RESOURCE;
 static ErlNifTSDKey ebdb_buffer_TSD;
 
 // Atoms (initialized in on_load)
+static ERL_NIF_TERM ATOM_NEXT;
+static ERL_NIF_TERM ATOM_NEXT_DUP;
+static ERL_NIF_TERM ATOM_SET;
+static ERL_NIF_TERM ATOM_SET_RANGE;
+
 static ERL_NIF_TERM ATOM_INIT_CDB;
 static ERL_NIF_TERM ATOM_INIT_LOCK;
 static ERL_NIF_TERM ATOM_INIT_LOG;
@@ -124,7 +130,15 @@ int decode_flags(ErlNifEnv* env, ERL_NIF_TERM list, u_int32_t *flags)
   ERL_NIF_TERM head;
   while (enif_get_list_cell(env, list, &head, &list)) {
     
-    if (enif_is_identical(head, ATOM_READ_UNCOMMITTED)) {
+    if (enif_is_identical(head, ATOM_NEXT)) {
+      f |= DB_NEXT;
+    } else if (enif_is_identical(head, ATOM_SET)) {
+      f |= DB_SET;
+    } else if (enif_is_identical(head, ATOM_SET_RANGE)) {
+      f |= DB_SET_RANGE;
+    } else if (enif_is_identical(head, ATOM_NEXT_DUP)) {
+      f |= DB_NEXT;
+    } else if (enif_is_identical(head, ATOM_READ_UNCOMMITTED)) {
       f |= DB_READ_UNCOMMITTED;
     } else if (enif_is_identical(head, ATOM_READ_COMMITTED)) {
       f |= DB_READ_COMMITTED;
@@ -645,6 +659,60 @@ ERL_NIF_TERM ebdb_nifs_open_cursor(ErlNifEnv* env, int argc, const ERL_NIF_TERM 
   return enif_make_tuple2(env, ATOM_OK, result);  
 }
 
+ERL_NIF_TERM ebdb_nifs_cursor_get(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+  ErlNifBinary key_bin, value_bin;
+  DBT key, value;
+  ebdb_cursor_handle *cursor_handle;
+  u_int32_t flags;
+  int err;
+
+  if (!get_cursor_handle(env, argv[0], &cursor_handle)
+      || !enif_inspect_binary(env, argv[1], &key_bin)
+      || !decode_flags(env, argv[2], &flags)) {
+    return enif_make_badarg(env);
+  }
+
+  
+  char *buffer = enif_tsd_get(ebdb_buffer_TSD);
+  if (buffer == NULL) {
+    buffer = enif_alloc(BUFFER_SIZE);
+    enif_tsd_set(ebdb_buffer_TSD, buffer);
+  }
+
+  key.data = buffer;
+  key.size = key_bin.size;
+  key.ulen = MAX_KEY_SIZE;
+  key.flags = DB_DBT_USERMEM;
+  memcpy(key.data, key_bin.data, key_bin.size);
+
+  value.data = buffer+MAX_KEY_SIZE;
+  value.size = 0;
+  value.ulen = BUFFER_SIZE-MAX_KEY_SIZE;
+  value.flags = DB_DBT_USERMEM;
+
+  err = cursor_handle->cursor->get(cursor_handle->cursor,
+                                   &key,
+                                   &value,
+                                   flags);
+
+  if (err != 0) {
+    return make_error_tuple(env, err);
+  }
+
+  if (!enif_alloc_binary(value.size, &value_bin)
+      || !enif_alloc_binary(key.size, &key_bin)) {
+    return make_error_tuple(env, ENOMEM);
+  }
+    
+  return enif_make_tuple3(env, 
+                          ATOM_OK, 
+                          enif_make_binary(env, &key_bin),
+                          enif_make_binary(env, &value_bin));  
+}
+
+
+
 ERL_NIF_TERM ebdb_nifs_txn_begin(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
   ebdb_env_handle *env_handle;
@@ -852,6 +920,11 @@ static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
   ATOM_NOOVERWRITE = enif_make_atom(env, "nooverwrite");
   ATOM_OVERWRITE_DUP = enif_make_atom(env, "overwrite_dup");
 
+  ATOM_NEXT = enif_make_atom(env, "next");
+  ATOM_NEXT_DUP = enif_make_atom(env, "next_dup");
+  ATOM_SET = enif_make_atom(env, "set");
+  ATOM_SET_RANGE = enif_make_atom(env, "set_range");
+
   ATOM_NOTFOUND = enif_make_atom(env, "notfound");
   ATOM_KEYEMPTY = enif_make_atom(env, "keyempty");
 
@@ -893,6 +966,7 @@ static ErlNifFunc nif_funcs[] =
 
     {"cursor_open", 3, ebdb_nifs_open_cursor},
     {"cursor_close", 1, ebdb_nifs_close_cursor},
+    {"cursor_get", 3, ebdb_nifs_cursor_get},
 
     {"txn_begin", 3, ebdb_nifs_txn_begin},
     {"txn_commit", 2, ebdb_nifs_txn_commit},
