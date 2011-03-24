@@ -265,7 +265,9 @@ ERL_NIF_TERM describe_error(ErlNifEnv* env, int err) {
   case EACCES: 
     return enif_make_atom(env, "eacces");
   }
-  return enif_make_int(env, err);
+  return enif_make_tuple2(env, 
+                          enif_make_atom(env, "errno"),
+                          enif_make_int(env, err));
 }
 
 
