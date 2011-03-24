@@ -80,6 +80,9 @@ static ERL_NIF_TERM ATOM_TXN_WAIT;
 static ERL_NIF_TERM ATOM_TXN_NOWAIT;
 static ERL_NIF_TERM ATOM_TXN_SNAPSHOT;
 
+static ERL_NIF_TERM ATOM_CURSOR_BULK;
+static ERL_NIF_TERM ATOM_WRITECURSOR;
+
 static ERL_NIF_TERM ATOM_NOTFOUND;
 static ERL_NIF_TERM ATOM_KEYEMPTY;
 
@@ -127,6 +130,10 @@ int decode_flags(ErlNifEnv* env, ERL_NIF_TERM list, u_int32_t *flags)
       f |= DB_READ_COMMITTED;
     } else if (enif_is_identical(head, ATOM_TXN_BULK)) {
       f |= DB_TXN_BULK;
+    } else if (enif_is_identical(head, ATOM_CURSOR_BULK)) {
+      f |= DB_CURSOR_BULK;
+    } else if (enif_is_identical(head, ATOM_WRITECURSOR)) {
+      f |= DB_WRITECURSOR;
     } else if (enif_is_identical(head, ATOM_TXN_SYNC)) {
       f |= DB_TXN_SYNC;
     } else if (enif_is_identical(head, ATOM_TXN_NOSYNC)) {
@@ -576,7 +583,8 @@ ERL_NIF_TERM ebdb_nifs_open_cursor(ErlNifEnv* env, int argc, const ERL_NIF_TERM 
   int err;
 
   if (   !get_db_handle(env, argv[0], &db_handle) 
-         || !get_txn_handle(env, argv[1], &txn_handle) || txn_handle == NULL
+         || !get_txn_handle(env, argv[1], &txn_handle)
+         || txn_handle == NULL // txn must be given
          || !decode_flags(env, argv[2], &flags)) {
     return enif_make_badarg(env);
   }
@@ -689,10 +697,10 @@ static void ebdb_db_resource_cleanup(ErlNifEnv* env, void* arg)
     handle->dbp = 0;
   }
 
-    if (handle->env_handle != NULL) {
-      enif_release_resource( handle->env_handle );
-      handle->env_handle = NULL;
-    }
+  if (handle->env_handle != NULL) {
+    enif_release_resource( handle->env_handle );
+    handle->env_handle = NULL;
+  }
   
 }
 
@@ -821,6 +829,9 @@ static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
   ATOM_QUEUE = enif_make_atom(env, "queue");
   ATOM_RECNO = enif_make_atom(env, "recno");
   ATOM_UNKNOWN = enif_make_atom(env, "unknown");
+
+  ATOM_CURSOR_BULK = enif_make_atom(env, "cursor_bulk");
+  ATOM_WRITECURSOR = enif_make_atom(env, "writecursor");
 
   ATOM_READ_COMMITTED = enif_make_atom(env, "read_committed");
   ATOM_TXN_BULK = enif_make_atom(env, "txn_bulk");

@@ -38,6 +38,7 @@
 -opaque db()  :: term().
 -opaque env() :: term().
 -opaque txn() :: term().
+-opaque cursor() :: term().
     
 
 -on_load(init/0).
@@ -120,7 +121,9 @@ txn_commit(_Txn, _Flags) ->
 txn_abort(_Txn) ->
     ?missing_nif.
 
-
+-type cursor_open_flags() :: cursor_bulk | read_committed | read_uncommitted
+              | writecursor | txn_snapshot.
+-spec cursor_open(db(), txn(), [cursor_open_flags()]) -> cursor().
 cursor_open(_DB, _Txn, _Flags) ->
     ?missing_nif.
 
