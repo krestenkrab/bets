@@ -17,11 +17,20 @@
 %% limitations under the License.
 %%
 
--export([with_tx/2,new_tx/2,with_cursor/2]).
+-export([fold/4]).
+-export([transactional/2,transaction/2,with_cursor/2]).
 
 -define(CURRENT_TX, bdb_current_tx).
 
-new_tx(Env,Fun) ->
+-record(db, {
+          env                :: bdb_nifs:env(),
+          store              :: bdb_nifs:db(),
+          keypos = 1         :: pos_integer(),
+          duplicates = false :: boolean(),
+          data_file          :: string()
+         }).
+
+transaction(Env,Fun) ->
     ParrentTX = erlang:get(?CURRENT_TX),
     {ok, Txn} = bdb_nifs:txn_begin(Env, ParrentTX, []),
     try
@@ -38,17 +47,17 @@ new_tx(Env,Fun) ->
     end.
 
 
-with_tx(Env,Fun) ->
+transactional(Env,Fun) ->
     case erlang:get(?CURRENT_TX) of
         undefined ->
-            new_tx(Env,Fun);
+            transaction(Env,Fun);
 
         Txn ->
             Fun(Txn)
     end.
 
 with_cursor({db,Env,Store,_KeyPos,_Dups,_File},Fun) ->
-    with_tx(Env,
+    transactional(Env,
             fun(TX) ->
                     {ok, Cursor} = bdb_nifs:cursor_open(Store, TX, []),
                     try
@@ -57,3 +66,71 @@ with_cursor({db,Env,Store,_KeyPos,_Dups,_File},Fun) ->
                         bdb_nifs:cursor_close(Cursor)
                     end
             end).
+
+%%@doc
+%% fold/4 folds over all elements with a given prefix
+%%@end
+fold(Fun,Acc,KeyPrefix,#db{}=DB) when is_binary(KeyPrefix) ->
+    PrefixLen = byte_size(KeyPrefix),
+    bdb:with_cursor
+      (DB,
+       fun(Cursor) ->
+               case bdb_nifs:cursor_get(Cursor, KeyPrefix, [set_range]) of
+                   {ok, <<KeyPrefix:PrefixLen/binary, _/binary>>=BinKey, BinTuple} ->
+                       Acc1 = Fun(BinTuple,Acc),
+                       case DB#db.duplicates of
+                           true ->
+                               Acc2 = fold_dups(Cursor, BinKey, Fun, Acc1);
+                           false ->
+                               Acc2 = Acc1
+                       end,
+
+                       fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc2);
+
+                   {ok, _, _} ->
+                       [];
+                   {error, notfound} ->
+                       [];
+                   {error, keyempty} ->
+                       [];
+                   {error, _} = E ->
+                       E
+               end
+       end).
+
+fold_dups(Cursor, BinKey, Fun, Acc) ->
+    case bdb_nifs:cursor_get(Cursor, BinKey, [next_dup]) of
+        {ok, BinKey, BinTuple} ->
+            Acc1 = Fun(BinTuple, Acc),
+            fold_dups(Cursor, BinKey, Fun, Acc1);
+        {ok, _, _} ->
+            Acc;
+        {error, notfound} ->
+            Acc;
+        {error, keyempty} ->
+            Acc;
+        {error, _} = E ->
+            E
+    end.
+
+fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc) ->
+    case bdb_nifs:cursor_get(Cursor, <<>>, [next]) of
+        {ok, <<KeyPrefix:PrefixLen/binary, _/binary>>=BinKey, BinValue} ->
+            Acc1 = Fun(BinValue,Acc),
+
+            case DB#db.duplicates of
+                true ->
+                    Acc2 = fold_dups(Cursor, BinKey, Fun, Acc1);
+                false ->
+                    Acc2 = Acc1
+            end,
+
+            fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc2);
+        {ok, _, _} ->
+            Acc;
+        {error, notfound} ->
+            Acc;
+        {error, keyempty} ->
+            Acc
+    end.
+
