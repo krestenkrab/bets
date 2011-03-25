@@ -26,13 +26,7 @@
 -include_lib("eunit/include/eunit.hrl").
 %-endif.
 
--record(db, {
-          env                :: bdb_nifs:env(),
-          store              :: bdb_nifs:db(),
-          keypos = 1         :: pos_integer(),
-          duplicates = false :: boolean(),
-          data_file          :: string()
-         }).
+-include("bdb_internal.hrl").
 
 process_options(Options, DB, Flags, Method) ->
     case Options of

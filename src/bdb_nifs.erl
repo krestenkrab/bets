@@ -185,4 +185,13 @@ simple_test() ->
     ok = db_close(DB, [nosync]).
 
 
+compare_envs_test() ->
+    file:make_dir("env1"),
+    file:make_dir("env2"),
+    
+    {ok, Env1} = env_open("env1", [create|thread]),
+    {ok, Env2} = env_open("env2", [create|thread]),
+    
+    Env1 =/= Env2.
+
 -endif.

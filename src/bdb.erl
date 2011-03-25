@@ -18,23 +18,18 @@
 %%
 
 -export([fold/4]).
--export([transactional/2,transaction/2,with_cursor/2]).
 
--define(CURRENT_TX, bdb_current_tx).
+-export([transactional/2,transaction/2,with_cursor/2,current/1]).
 
--record(db, {
-          env                :: bdb_nifs:env(),
-          store              :: bdb_nifs:db(),
-          keypos = 1         :: pos_integer(),
-          duplicates = false :: boolean(),
-          data_file          :: string()
-         }).
+-include("bdb_internal.hrl").
 
-transaction(Env,Fun) ->
-    ParrentTX = erlang:get(?CURRENT_TX),
-    {ok, Txn} = bdb_nifs:txn_begin(Env, ParrentTX, []),
+transaction(#db{env=Env},Fun) ->
+
+    OldTX = erlang:get(?CURRENT_TX),
+    
+    {ok, Txn} = bdb_nifs:txn_begin(Env, txfind(Env,OldTX), []),
     try
-        erlang:put(?CURRENT_TX, Txn),
+        erlang:put(?CURRENT_TX, [{Env,Txn}|OldTX]),
         Result = Fun(Txn),
         ok = bdb_nifs:txn_commit(Txn),
         Result
@@ -43,21 +38,29 @@ transaction(Env,Fun) ->
             bdb_nifs:txn_abort(Txn),
             erlang:raise(Class, Reason, erlang:get_stacktrace())
     after
-        erlang:put(?CURRENT_TX, ParrentTX)
+        erlang:put(?CURRENT_TX, OldTX)
     end.
 
+current(#db{env=Env}) ->
+    txfind(Env, erlang:get(?CURRENT_TX)).
 
-transactional(Env,Fun) ->
-    case erlang:get(?CURRENT_TX) of
-        undefined ->
-            transaction(Env,Fun);
 
-        Txn ->
-            Fun(Txn)
+txfind(E,[{E,V}|_]) ->
+    V;
+txfind(E,[{_,_}|R]) ->
+    txfind(E,R);
+txfind(_,_) ->
+    undefined.
+
+
+transactional(DB,Fun) ->
+    case current(DB) of
+        undefined -> transaction(DB,Fun);
+        Txn       -> Fun(Txn)
     end.
 
-with_cursor({db,Env,Store,_KeyPos,_Dups,_File},Fun) ->
-    transactional(Env,
+with_cursor(#db{store=Store}=DB,Fun) ->
+    transactional(DB,
             fun(TX) ->
                     {ok, Cursor} = bdb_nifs:cursor_open(Store, TX, []),
                     try
@@ -76,8 +79,8 @@ fold(Fun,Acc,KeyPrefix,#db{}=DB) when is_binary(KeyPrefix) ->
       (DB,
        fun(Cursor) ->
                case bdb_nifs:cursor_get(Cursor, KeyPrefix, [set_range]) of
-                   {ok, <<KeyPrefix:PrefixLen/binary, _/binary>>=BinKey, BinTuple} ->
-                       Acc1 = Fun(BinTuple,Acc),
+                   {ok, <<KeyPrefix:PrefixLen/binary, _/binary>>=BinKey, BinValue} ->
+                       Acc1 = Fun(BinValue,Acc),
                        case DB#db.duplicates of
                            true ->
                                Acc2 = fold_dups(Cursor, BinKey, Fun, Acc1);
@@ -94,14 +97,14 @@ fold(Fun,Acc,KeyPrefix,#db{}=DB) when is_binary(KeyPrefix) ->
                    {error, keyempty} ->
                        [];
                    {error, _} = E ->
-                       E
+                       exit(E)
                end
        end).
 
 fold_dups(Cursor, BinKey, Fun, Acc) ->
     case bdb_nifs:cursor_get(Cursor, BinKey, [next_dup]) of
-        {ok, BinKey, BinTuple} ->
-            Acc1 = Fun(BinTuple, Acc),
+        {ok, BinKey, BinValue} ->
+            Acc1 = Fun(BinValue, Acc),
             fold_dups(Cursor, BinKey, Fun, Acc1);
         {ok, _, _} ->
             Acc;
@@ -110,7 +113,7 @@ fold_dups(Cursor, BinKey, Fun, Acc) ->
         {error, keyempty} ->
             Acc;
         {error, _} = E ->
-            E
+            exit(E)
     end.
 
 fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc) ->
@@ -131,6 +134,8 @@ fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc) ->
         {error, notfound} ->
             Acc;
         {error, keyempty} ->
-            Acc
+            Acc;
+        {error, _} = E ->
+            exit(E)
     end.
 
