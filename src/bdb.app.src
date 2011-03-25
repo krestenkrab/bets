@@ -1,4 +1,4 @@
-{application, ebdb,
+{application, bdb,
  [
   {description, ""},
   {vsn, "1"},
@@ -7,6 +7,6 @@
                   kernel,
                   stdlib
                  ]},
-  {mod, { ebdb_app, []}},
+  {mod, { bdb_app, []}},
   {env, []}
  ]}.

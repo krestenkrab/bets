@@ -1,6 +1,6 @@
--module(dbets).
+-module(bets).
 %%
-%% This file is part of EBDB - Erlang Berkeley DB API
+%% This file is part of BETS - Erlang Berkeley DB API
 %%
 %% Copyright (c) 2011 by Trifork
 %%
@@ -18,7 +18,7 @@
 %%
 
 %%@doc
-%% DB-ETS is an ETS-lookalike, based on the Erlang Berkeley DB API
+%% BETS is an ETS-lookalike, based on the Erlang Berkeley DB API
 %%@end
 -export([open/2,insert/2,lookup/2,close/1,close/2,match/2,select/2,fold/3]).
 

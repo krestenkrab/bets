@@ -1,5 +1,5 @@
 %%
-%% This file is part of EBDB - Erlang Berkeley DB API
+%% This file is part of BETS - Erlang Berkeley DB API
 %%
 %% Copyright (c) 2011 by Trifork
 %%
@@ -16,7 +16,7 @@
 %% limitations under the License.
 %%
 
--module(ebdb_nifs).
+-module(bdb_nifs).
 
 -export([env_open/2, db_open/7, db_close/2, db_remove/5]).
 -export([db_get/4]).
