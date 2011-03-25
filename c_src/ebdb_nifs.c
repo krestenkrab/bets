@@ -137,7 +137,7 @@ int decode_flags(ErlNifEnv* env, ERL_NIF_TERM list, u_int32_t *flags)
     } else if (enif_is_identical(head, ATOM_SET_RANGE)) {
       f |= DB_SET_RANGE;
     } else if (enif_is_identical(head, ATOM_NEXT_DUP)) {
-      f |= DB_NEXT;
+      f |= DB_NEXT_DUP;
     } else if (enif_is_identical(head, ATOM_READ_UNCOMMITTED)) {
       f |= DB_READ_UNCOMMITTED;
     } else if (enif_is_identical(head, ATOM_READ_COMMITTED)) {
