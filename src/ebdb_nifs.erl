@@ -18,7 +18,7 @@
 
 -module(ebdb_nifs).
 
--export([env_open/2, db_open/6, db_close/2]).
+-export([env_open/2, db_open/7, db_close/2, db_remove/5]).
 -export([db_get/4]).
 -export([db_put/5]).
 -export([cursor_open/3, cursor_close/1, cursor_get/3]).
@@ -29,8 +29,8 @@
 -endif.
 
 -define(missing_nif, erlang:nif_error(missing_nif)).
--define(NOTXN, undefined). 
--define(NOENV, undefined). 
+-define(NOTXN, undefined).
+-define(NOENV, undefined).
 
 %%
 %% public specs
@@ -39,7 +39,7 @@
 -opaque env() :: term().
 -opaque txn() :: term().
 -opaque cursor() :: term().
-    
+
 
 -on_load(init/0).
 
@@ -48,20 +48,25 @@
 init() ->
     case code:priv_dir(?MODULE) of
         {error, bad_name} ->
-            SoName = filename:join("../priv", atom_to_list(?MODULE));
+            case file:read_file_info("../priv") of
+                {ok, _} ->
+                    SoName = filename:join("../priv", atom_to_list(?MODULE));
+                {error, _} ->
+                    SoName = filename:join("priv", atom_to_list(?MODULE))
+            end;
         Dir ->
             SoName = filename:join(Dir, atom_to_list(?MODULE))
     end,
     erlang:load_nif(SoName, 0).
 
--type env_open_flag() :: 
+-type env_open_flag() ::
        init_cdb | init_lock | init_log | init_mpool | init_rep | init_txn
      | recover | recover_fatal
      | use_environ | use_environ_root
      | create | lockdown | private | register | system_mem | thread .
 
 -type db_open_flag() ::
-       auto_commit | create | excl | multiversion | nommap | rdonly 
+       auto_commit | create | excl | multiversion | nommap | rdonly
      | read_uncommitted | thread | truncate .
 
 -type db_close_flag() :: nosync.
@@ -72,24 +77,27 @@ init() ->
 env_open(_EnvHomeDir, _OpenFlags) ->
     ?missing_nif.
 
--spec db_open(env()|?NOENV, txn()|?NOTXN, string(), access_method(), boolean(), [ db_open_flag() ]) -> {ok, db()} | {error, term()}.
-db_open(_Env, _Txn, _FileName, _AccessMethod, _AllowDups, _OpenFlags) ->
+-spec db_open(env()|?NOENV, txn()|?NOTXN, string(), string()|undefined, access_method(), boolean(), [ db_open_flag() ]) -> {ok, db()} | {error, term()}.
+db_open(_Env, _Txn, _FileName, _DatabaseName, _AccessMethod, _AllowDups, _OpenFlags) ->
     ?missing_nif.
 
 -spec db_close(db(), [ db_close_flag() ]) -> {error, term()} | ok.
 db_close(_DB, _Flags) ->
     ?missing_nif.
 
+db_remove(_Env,_Txn,_File,_Database,_Flags) ->
+    ?missing_nif.
+
 -type db_get_flag() :: consume | consume_wait | read_committed | read_uncommitted | rwm.
--spec db_get(db(), txn()|?NOTXN, binary(), [ db_get_flag() ]) -> 
-    {ok, binary()} | {error, term()}. 
-    
+-spec db_get(db(), txn()|?NOTXN, binary(), [ db_get_flag() ]) ->
+    {ok, binary()} | {error, term()}.
+
 db_get(_DB, _Txn, _KeyBin, _Flags) ->
     ?missing_nif.
 
 -type db_put_flag() :: append | nodupdata | nooverwrite | overwrite_dup.
--spec db_put(db(), txn()|?NOTXN, binary(), binary(), [ db_put_flag() ]) -> 
-    ok | {ok, binary()} | {error, term()}. 
+-spec db_put(db(), txn()|?NOTXN, binary(), binary(), [ db_put_flag() ]) ->
+    ok | {ok, binary()} | {error, term()}.
 
 %%@doc
 %% Store a key/value into the store
@@ -98,7 +106,7 @@ db_get(_DB, _Txn, _KeyBin, _Flags) ->
 %% Key is ignored, and the result is `{ok, Key}'; otherwise result is
 %% `ok'.
 %%
-%%@end    
+%%@end
 db_put(_DB, _Txn, _KeyBin, _DataBin, _Flags) ->
     ?missing_nif.
 
@@ -110,7 +118,7 @@ db_put(_DB, _Txn, _KeyBin, _DataBin, _Flags) ->
 -spec txn_begin(env()) -> {ok, txn()} | {error, term()}.
 -spec txn_begin(env(), [ begin_txn_flag() ]) -> {ok, txn()} | {error, term()}.
 -spec txn_begin(env(), txn()|?NOTXN, [ begin_txn_flag() ]) -> {ok, txn()} | {error, term()}.
-    
+
 txn_begin(Env) ->
     txn_begin(Env, ?NOTXN, []).
 
@@ -147,16 +155,16 @@ cursor_get(_Cursor,_Key,_Flags) ->
 -ifdef(TEST).
 
 no_env_test() ->
-    {ok, _} = db_open(?NOENV, ?NOTXN, "sample_noenv.db", btree, false, [create]).
+    {ok, _} = db_open(?NOENV, ?NOTXN, "sample_noenv.db", undefined, btree, false, [create]).
 
 simple_test() ->
-    
+
     {ok, Env} = env_open("/tmp",
                          [init_txn,create,recover,init_mpool,private,thread]),
 
     {ok, TX} = txn_begin(Env),
-    
-    {ok, DB} = db_open(Env, TX, "sample.db", hash, false,
+
+    {ok, DB} = db_open(Env, TX, "sample.db", "main", hash, false,
                        [create,thread]),
 
     ok = db_put(DB, TX, <<"key">>, <<"value">>, []),
@@ -167,14 +175,14 @@ simple_test() ->
     {error, notfound} = db_get(DB, ?NOTXN, <<"key2">>, []),
 
     {ok, TX2} = txn_begin(Env),
-    {ok, R} = db_open(Env, TX2, "recno.db", recno, false, [create,thread]),
+    {ok, R} = db_open(Env, TX2, "recno.db", "main", recno, false, [create,thread]),
     {ok, C} = cursor_open(R, TX2, []),
     ok = cursor_close(C),
     ok = txn_commit(TX2),
-    
+
     ok = db_close(R, []),
-    
+
     ok = db_close(DB, [nosync]).
-    
+
 
 -endif.

@@ -20,17 +20,18 @@
 %%@doc
 %% DB-ETS is an ETS-lookalike, based on the Erlang Berkeley DB API
 %%@end
--export([open/2,insert/2,lookup/2,close/1,close/2,match/2,select/2,fold/3,fold/4]).
+-export([open/2,insert/2,lookup/2,close/1,close/2,match/2,select/2,fold/3]).
 
--ifdef(TEST).
+%-ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--endif.
+%-endif.
 
--record(db, { 
+-record(db, {
           env                :: ebdb_nifs:env(),
           store              :: ebdb_nifs:db(),
           keypos = 1         :: pos_integer(),
-          duplicates = false :: boolean()
+          duplicates = false :: boolean(),
+          data_file          :: string()
          }).
 
 process_options(Options, DB, Flags, Method) ->
@@ -63,11 +64,19 @@ process_options(Options, DB, Flags, Method) ->
 open(Directory, Options) ->
     DefaultFlags = [create,init_txn,recover,init_mpool,thread],
     {DB,Flags,Method} = process_options(Options, #db{}, DefaultFlags, hash),
-    {ok, Env} = ebdb_nifs:env_open(Directory, 
-                                      Flags),
-    {ok, Store} = ebdb_nifs:db_open(Env, undefined, "data.db", 
-                                    Method, DB#db.duplicates, [create,thread,auto_commit]),
-    {ok, DB#db{ env=Env, store=Store }}.
+    {ok, Env} = ebdb_nifs:env_open(Directory, Flags),
+    {ok, Store} =
+%        ebdb:with_tx
+%          (Env, fun(TX) ->
+                        ebdb_nifs:db_open(Env,
+                                          undefined,
+                                          "data.db", "main",
+                                          Method,
+                                          DB#db.duplicates,
+                                          [create,thread,auto_commit])
+%                end)
+        ,
+    {ok, DB#db{ env=Env, store=Store, data_file=filename:join(Directory, "data.db") }}.
 
 close(#db{}=DB) ->
     close(DB, sync).
@@ -98,7 +107,7 @@ lookup(#db{ duplicates=Dups }=DB, Key) ->
             end;
 
         true ->
-            lookup_duplicates(DB,BinKey)
+            lists:reverse(lookup_duplicates(DB,BinKey))
     end.
 
 lookup_duplicates(DB,BinKey) ->
@@ -131,13 +140,88 @@ lookup_next_dups(Cursor, BinKey, Rest) ->
         {error, keyempty} ->
             Rest;
         {error, _} = E ->
-            E
+            E;
+        X -> exit({'huh?', X})
     end.
+
+match(DB, Pattern) ->
+    select(DB, [{Pattern,[],['$$']}]).
+
+select(#db{keypos=KeyIndex}=DB, MatchSpec) ->
+    case MatchSpec of
+        [] -> [];
+        [{Pattern,_,_}]=MSE ->
+            CMS = ets:match_spec_compile(MSE),
+            KeyPattern = element(KeyIndex, Pattern),
+            KeyPrefix = sext:prefix(KeyPattern),
+
+            Result = fold(fun(Tuple, Acc0) ->
+                                  case ets:match_spec_run([Tuple], CMS) of
+                                      [] -> Acc0;
+                                      [[Data]] -> [Data | Acc0]
+                                  end
+                          end,
+                          [],
+                          KeyPrefix,
+                          DB),
+            lists:reverse(Result);
+
+        MatchSpec ->
+            CMS = ets:match_spec_compile(MatchSpec),
+            Result = fold(fun(Tuple, Acc0) ->
+                                  case ets:match_spec_run([Tuple], CMS) of
+                                      [] -> Acc0;
+                                      [[Data]] -> [Data | Acc0]
+                                  end
+                          end,
+                          [],
+                          DB),
+            lists:reverse(Result)
+    end.
+
+fold(Fun,Acc,DB) ->
+    fold(Fun,Acc,<<>>,DB).
+
+%%@doc
+%% fold/4 folds over all elements with a given prefix
+%%@end
+fold(Fun,Acc,KeyPrefix,#db{}=DB) when is_binary(KeyPrefix) ->
+    PrefixLen = byte_size(KeyPrefix),
+    ebdb:with_cursor
+      (DB,
+       fun(Cursor) ->
+               case ebdb_nifs:cursor_get(Cursor, KeyPrefix, [set_range]) of
+                   {ok, <<KeyPrefix:PrefixLen/binary, _/binary>>=BinKey, BinTuple} ->
+                       Tuple = erlang:binary_to_term(BinTuple),
+                       Acc1 = Fun(Tuple,Acc),
+                       case DB#db.duplicates of
+                           true ->
+                               Acc2 = fold_dups(Cursor, BinKey, Fun, Acc1);
+                           false ->
+                               Acc2 = Acc1
+                       end,
+
+                       fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc2);
+
+                   {ok, _, _} ->
+                       [];
+                   {error, notfound} ->
+                       [];
+                   {error, keyempty} ->
+                       [];
+                   {error, _} = E ->
+                       E
+               end
+       end).
 
 fold_dups(Cursor, BinKey, Fun, Acc) ->
     case ebdb_nifs:cursor_get(Cursor, BinKey, [next_dup]) of
-        {ok, _, BinTuple} ->
-            fold_dups(Cursor, BinKey, Fun, Fun( binary_to_term(BinTuple), Acc));
+        {ok, BinKey, BinTuple} ->
+            Tuple = binary_to_term(BinTuple),
+            Acc1 = Fun(Tuple, Acc),
+            fold_dups(Cursor, BinKey, Fun, Acc1);
+        {ok, _, _} ->
+            Acc;
         {error, notfound} ->
             Acc;
         {error, keyempty} ->
@@ -146,75 +230,12 @@ fold_dups(Cursor, BinKey, Fun, Acc) ->
             E
     end.
 
-match(DB, Pattern) ->
-    select(DB, [{Pattern,[],['$$']}]).
-
-select(#db{keypos=KeyIndex}=DB, MatchSpec) ->
-    lists:foldl(fun({Pattern,_,_}=MSE, Acc) ->
-                        CMS = ets:match_spec_compile([MSE]),
-                        KeyPattern = element(KeyIndex, Pattern),
-                        KeyPrefix = sext:prefix(KeyPattern),
-                        
-                        Result = fold(fun(Tuple, Acc0) ->
-                                              case ets:match_spec_run([Tuple], CMS) of
-                                                  [] -> Acc0;
-                                                  [Res] -> Res ++ Acc0
-                                              end
-                                      end,
-                                      Acc,
-                                      KeyPrefix,
-                                      DB),
-                        lists:reverse(Result)
-                end,
-                [],
-                MatchSpec).
-
-fold(Fun,Acc,DB) ->
-    fold(Fun,Acc,<<>>,DB).
-
-%%@doc 
-%% fold/4 folds over all elements with a given prefix
-%%@end
-fold(Fun,Acc,KeyPrefix,#db{}=DB) when is_binary(KeyPrefix) ->
-    PrefixLen = byte_size(KeyPrefix),
-    edbd:with_tx
-      (fun(TX) ->
-        {ok, Cursor} = ebdb_nifs:cursor_open(DB#db.store, TX, []),
-
-        try ebdb_nifs:cursor_get(Cursor, KeyPrefix, [set_range]) of
-            {ok, <<KeyPrefix:PrefixLen/binary, _/binary>>=BinKey, BinValue} ->
-                Value = erlang:binary_to_term(BinValue),
-                Acc1 = Fun(Value,Acc),
-                case DB#db.duplicates of
-                    true ->
-                        Acc2 = fold_dups(Cursor, BinKey, Fun, Acc1);
-                    false ->
-                        Acc2 = Acc1
-                end,
-                
-                fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc2);
-            
-            {ok, _, _} ->
-                [];
-            {error, notfound} ->
-                [];
-            {error, keyempty} ->
-                [];
-            {error, _} = E ->
-                E
-        after
-            ok = ebdb_nifs:cursor_close(Cursor)
-        end
-       end,
-       DB#db.env).
-    
-
 fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc) ->
     case ebdb_nifs:cursor_get(Cursor, <<>>, [next]) of
         {ok, <<KeyPrefix:PrefixLen/binary, _/binary>>=BinKey, BinValue} ->
-            Value = binary_to_term(BinValue),
-            Acc1 = Fun(Value,Acc),
-            
+            Tuple = binary_to_term(BinValue),
+            Acc1 = Fun(Tuple,Acc),
+
             case DB#db.duplicates of
                 true ->
                     Acc2 = fold_dups(Cursor, BinKey, Fun, Acc1);
@@ -230,15 +251,14 @@ fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc) ->
         {error, keyempty} ->
             Acc
     end.
-                       
 
-    
--ifdef(TEST).
+
+
+%-ifdef(TEST).
 
 %% ready for testing!
 
-simple_test() ->
-    
+create_db() ->
     {ok, DB} = open("/tmp/xxx", [{create,true},ordered_bag]),
     insert(DB, {{<<"ab">>,1}, a}),
     insert(DB, {{<<"ac">>,2}, b}),
@@ -247,17 +267,30 @@ simple_test() ->
     insert(DB, {{<<"ac">>,4}, x}),
     insert(DB, {{<<"ac">>,5}, c}),
     insert(DB, {{<<"bc">>,4}, d}),
+    DB.
 
-    [{{<<"ac">>,2},b2},{{<<"ac">>,2},b}] = lookup(DB, {<<"ac">>,2}),
+remove_db(DB) ->
+    close(DB),
+    ok = ebdb_nifs:db_remove(DB#db.env,
+                             undefined,
+                             DB#db.data_file,
+                             "main",
+                             [auto_commit]).
+
+simple_test() ->
+
+    DB = create_db(),
+
+    [{{<<"ac">>,2},b},{{<<"ac">>,2},b2}] = lookup(DB, {<<"ac">>,2}),
     [] = lookup(DB, {<<"ac">>,0}),
-    
-    %%[b2,c,x,c] = match(DB, {{<<"ac">>, '_'}, '$1'}),
 
-    List = fold(fun(V,Acc)->Acc++[V]end,[],DB),
-    7 = length(List),
+    [b,b2,c,x,c] = match(DB, {{<<"ac">>, '_'}, '$1'}),
 
-    close(DB).
-    
+    %%x = fold(fun(V,Acc)->[V|Acc]end,[],DB),
+    %%7 = length(List),
 
--endif.
+    remove_db(DB).
+
+
+%-endif.
 
