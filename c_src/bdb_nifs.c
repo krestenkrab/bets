@@ -318,8 +318,9 @@ ERL_NIF_TERM bdb_nifs_env_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
 
 static int get_env_handle(ErlNifEnv* env, ERL_NIF_TERM arg, bdb_env_handle **handlep)
 {
+  *handlep = NULL;
   if (enif_is_identical(arg, ATOM_UNDEFINED)) {
-    *handlep = NULL;
+    // ok
   } else {
     if (!enif_get_resource(env, arg, bdb_env_RESOURCE, (void**)handlep)) {
       return 0;
@@ -330,6 +331,7 @@ static int get_env_handle(ErlNifEnv* env, ERL_NIF_TERM arg, bdb_env_handle **han
 
 static int get_cursor_handle(ErlNifEnv* env, ERL_NIF_TERM arg, bdb_cursor_handle **handlep)
 {
+  *handlep = NULL;
   if (!enif_get_resource(env, arg, bdb_cursor_RESOURCE, (void**)handlep)) {
     return 0;
   }
@@ -338,6 +340,7 @@ static int get_cursor_handle(ErlNifEnv* env, ERL_NIF_TERM arg, bdb_cursor_handle
 
 static int get_db_handle(ErlNifEnv* env, ERL_NIF_TERM arg, bdb_db_handle **handlep)
 {
+  *handlep = NULL;
   if (!enif_get_resource(env, arg, bdb_db_RESOURCE, (void**)handlep)) {
     return 0;
   }
@@ -346,8 +349,9 @@ static int get_db_handle(ErlNifEnv* env, ERL_NIF_TERM arg, bdb_db_handle **handl
 
 static int get_txn_handle(ErlNifEnv* env, ERL_NIF_TERM arg, bdb_txn_handle **handlep)
 {
+  *handlep = NULL;
   if (enif_is_identical(arg, ATOM_UNDEFINED)) {
-    *handlep = NULL;
+    // ok
   } else {
     if (!enif_get_resource(env, arg, bdb_txn_RESOURCE, (void**)handlep)) {
       return 0;
@@ -671,13 +675,12 @@ ERL_NIF_TERM bdb_nifs_open_cursor(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
 
   if (   !get_db_handle(env, argv[0], &db_handle)
          || !get_txn_handle(env, argv[1], &txn_handle)
-         || txn_handle == NULL // txn must be given
          || !decode_flags(env, argv[2], &flags)) {
     return enif_make_badarg(env);
   }
 
   err = db_handle->dbp->cursor(db_handle->dbp,
-                               txn_handle->tid,
+                               txn_handle == NULL ? NULL : txn_handle->tid,
                                &cursor,
                                flags);
 
