@@ -57,19 +57,15 @@ process_options(Options, DB, Flags, Method) ->
 
 open(Directory, Options) ->
     DefaultFlags = [create,init_txn,recover,init_mpool,thread],
-    {DB,Flags,Method} = process_options(Options, #db{}, DefaultFlags, hash),
+    {DB,Flags,Method} = process_options(Options, #db{}, DefaultFlags, btree),
     {ok, Env} = bdb_nifs:env_open(Directory, Flags),
     {ok, Store} =
-%        bdb:with_tx
-%          (Env, fun(TX) ->
-                        bdb_nifs:db_open(Env,
-                                          undefined,
-                                          "data.db", "main",
-                                          Method,
-                                          DB#db.duplicates,
-                                          [create,thread,auto_commit])
-%                end)
-        ,
+        bdb_nifs:db_open(Env,
+                         undefined,
+                         "data.db", "main",
+                         Method,
+                         DB#db.duplicates,
+                         [create,thread,auto_commit]),
     {ok, DB#db{ env=Env, store=Store, data_file=filename:join(Directory, "data.db") }}.
 
 close(#db{}=DB) ->
@@ -101,32 +97,28 @@ lookup(#db{ duplicates=Dups }=DB, Key) ->
             end;
 
         true ->
-            lists:reverse(lookup_duplicates(DB,BinKey))
+            lists:reverse(lookup_dups(DB,BinKey))
     end.
 
-lookup_duplicates(DB,BinKey) ->
-    {ok, TX} = bdb_nifs:txn_begin(DB#db.env, [read_committed]),
-    try
-        {ok, Cursor} = bdb_nifs:cursor_open(DB#db.store, TX, []),
-        try bdb_nifs:cursor_get(Cursor, BinKey, [set]) of
+lookup_dups(DB,BinKey) ->
+    bdb:with_cursor(DB, 
+      fun(Cursor) ->
+        case bdb_nifs:cursor_get(Cursor, BinKey, [set]) of
             {ok, _, BinTuple} ->
-                lookup_next_dups(Cursor, BinKey, [binary_to_term(BinTuple)]);
+                Tuple = binary_to_term(BinTuple),
+                lookup_next_dups(Cursor, BinKey, [Tuple]);
             {error, notfound} ->
                 [];
             {error, _} = E ->
                 E
-        after
-            ok = bdb_nifs:cursor_close(Cursor)
         end
-    after
-        %% just abort it, it's a read-only txn anyway
-        bdb_nifs:txn_abort(TX)
-    end.
+      end).
 
 lookup_next_dups(Cursor, BinKey, Rest) ->
     case bdb_nifs:cursor_get(Cursor, BinKey, [next_dup]) of
         {ok, BinKey, BinTuple} ->
-            lookup_next_dups(Cursor, BinKey, [binary_to_term(BinTuple) | Rest]);
+            Tuple = binary_to_term(BinTuple),
+            lookup_next_dups(Cursor, BinKey, [Tuple | Rest]);
         {ok, _, _} ->
             Rest;
         {error, notfound} ->
@@ -151,7 +143,6 @@ select(#db{keypos=KeyIndex}=DB, MatchSpec) ->
 
             Result = bdb:fold(fun(BinTuple, Acc0) ->
                                   Tuple = erlang:binary_to_term(BinTuple),
-                                  io:format("tup: ~p~n", [Tuple]),
                                   case ets:match_spec_run([Tuple], CMS) of
                                       [] -> Acc0;
                                       [[Data]] -> [Data | Acc0]
@@ -176,7 +167,12 @@ select(#db{keypos=KeyIndex}=DB, MatchSpec) ->
     end.
 
 fold(Fun,Acc,DB) ->
-    bdb:fold(fun(Bin,A0)-> Fun(erlang:binary_to_term(Bin),A0) end,Acc,<<>>,DB).
+    bdb:fold(fun(Bin,A0) -> 
+                     Fun(erlang:binary_to_term(Bin),A0) 
+             end,
+             Acc,
+             <<>>,
+             DB).
 
 
 
@@ -185,7 +181,7 @@ fold(Fun,Acc,DB) ->
 %% ready for testing!
 
 create_db() ->
-    {ok, DB} = open("/tmp/xxx", [{create,true},ordered_bag]),
+    {ok, DB} = open("/tmp/xxx", [{create,true},ordered_bag,auto_commit]),
     insert(DB, {{<<"ab">>,1}, a}),
     insert(DB, {{<<"ac">>,2}, b}),
     insert(DB, {{<<"ac">>,2}, b2}),
@@ -208,6 +204,7 @@ simple_test() ->
     DB = create_db(),
 
     try
+%      bdb:transactional(DB,fun()->
         [{{<<"ac">>,2},b},{{<<"ac">>,2},b2}] = lookup(DB, {<<"ac">>,2}),
         [] = lookup(DB, {<<"ac">>,0}),
 
@@ -215,6 +212,7 @@ simple_test() ->
 
         %%x = fold(fun(V,Acc)->[V|Acc]end,[],DB),
         %%7 = length(List)
+%       end)
     after
         remove_db(DB)
     end.

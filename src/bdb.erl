@@ -30,7 +30,7 @@ transaction(#db{env=Env},Fun) ->
     {ok, Txn} = bdb_nifs:txn_begin(Env, txfind(Env,OldTX), []),
     try
         erlang:put(?CURRENT_TX, [{Env,Txn}|OldTX]),
-        Result = Fun(Txn),
+        Result = Fun(),
         ok = bdb_nifs:txn_commit(Txn),
         Result
     catch
@@ -60,23 +60,19 @@ transactional(DB,Fun) ->
     end.
 
 with_cursor(#db{store=Store}=DB,Fun) ->
-    transactional(DB,
-            fun(TX) ->
-                    {ok, Cursor} = bdb_nifs:cursor_open(Store, TX, []),
-                    try
-                        Fun(Cursor)
-                    after
-                        bdb_nifs:cursor_close(Cursor)
-                    end
-            end).
+    {ok, Cursor} = bdb_nifs:cursor_open(Store, current(DB), []),
+    try
+        Fun(Cursor)
+    after
+        bdb_nifs:cursor_close(Cursor)
+    end.
 
 %%@doc
 %% fold/4 folds over all elements with a given prefix
 %%@end
 fold(Fun,Acc,KeyPrefix,#db{}=DB) when is_binary(KeyPrefix) ->
     PrefixLen = byte_size(KeyPrefix),
-    bdb:with_cursor
-      (DB,
+    with_cursor (DB,
        fun(Cursor) ->
                case bdb_nifs:cursor_get(Cursor, KeyPrefix, [set_range]) of
                    {ok, <<KeyPrefix:PrefixLen/binary, _/binary>>=BinKey, BinValue} ->
