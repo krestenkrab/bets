@@ -890,8 +890,37 @@ static void bdb_txn_resource_cleanup(ErlNifEnv* env, void* arg)
 
 }
 
+void *bdb_malloc(size_t size) {
+  return enif_alloc(size);
+}
+
+void bdb_free(void *data) {
+  enif_free(data);
+}
+
+void *bdb_realloc(void *data, size_t size) {
+  return enif_realloc(data, size);
+}
+
+static ErlNifEnv* bdb_env = NULL;
+
+static void init_bdb() {
+  if (bdb_env != NULL) {
+    enif_clear_env(bdb_env);
+  }
+
+  bdb_env = enif_alloc_env();
+
+  db_env_set_func_malloc(bdb_malloc);
+  db_env_set_func_free(bdb_free);
+  db_env_set_func_realloc(bdb_realloc);
+}
+
+
 static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 {
+  init_bdb();
+
   //  printf("Initializing BDB - Erlang API for Berkeley DB\n");
   //  printf("Copyright (c) 2011 by Trifork.  All rights reserved.\n");
 
