@@ -17,7 +17,7 @@
 %% limitations under the License.
 %%
 
--export([fold/4]).
+-export([fold/4, lookup/2]).
 
 -export([transactional/2,transaction/2,with_cursor/2,current/1]).
 
@@ -26,7 +26,7 @@
 transaction(#db{env=Env},Fun) ->
 
     OldTX = erlang:get(?CURRENT_TX),
-    
+
     {ok, Txn} = bdb_nifs:txn_begin(Env, txfind(Env,OldTX), []),
     try
         erlang:put(?CURRENT_TX, [{Env,Txn}|OldTX]),
@@ -133,5 +133,51 @@ fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc) ->
             Acc;
         {error, _} = E ->
             exit(E)
+    end.
+
+
+-spec lookup(#db{}, binary()) -> [binary()] | {error, _}.
+
+lookup(#db{ duplicates=Dups }=DB, BinKey) ->
+    case Dups of
+        false ->
+            case bdb_nifs:db_get(DB#db.store, undefined, BinKey, []) of
+                {ok, BinTuple} ->
+                    [BinTuple];
+                {error, notfound} ->
+                    [];
+                {error, _}=E ->
+                    E
+            end;
+
+        true ->
+            lists:reverse(lookup_dups(DB,BinKey))
+    end.
+
+lookup_dups(DB,BinKey) ->
+    bdb:with_cursor(DB,
+      fun(Cursor) ->
+        case bdb_nifs:cursor_get(Cursor, BinKey, [set]) of
+            {ok, _, BinTuple} ->
+                lookup_next_dups(Cursor, BinKey, [BinTuple]);
+            {error, notfound} ->
+                [];
+            {error, _} = E ->
+                E
+        end
+      end).
+
+lookup_next_dups(Cursor, BinKey, Rest) ->
+    case bdb_nifs:cursor_get(Cursor, BinKey, [next_dup]) of
+        {ok, BinKey, BinTuple} ->
+            lookup_next_dups(Cursor, BinKey, [BinTuple | Rest]);
+        {ok, _, _} ->
+            Rest;
+        {error, notfound} ->
+            Rest;
+        {error, keyempty} ->
+            Rest;
+        {error, _} = E ->
+            E
     end.
 

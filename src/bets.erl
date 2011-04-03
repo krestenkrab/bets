@@ -83,51 +83,13 @@ insert(#db{ keypos=KeyIndex, store=Store }, Tuple) ->
     BinKey = sext:encode(Key),
     bdb_nifs:db_put(Store, undefined, BinKey, term_to_binary(Tuple), []).
 
-lookup(#db{ duplicates=Dups }=DB, Key) ->
+lookup(DB, Key) ->
     BinKey = sext:encode(Key),
-    case Dups of
-        false ->
-            case bdb_nifs:db_get(DB#db.store, undefined, BinKey, []) of
-                {ok, BinTuple} ->
-                    [binary_to_term(BinTuple)];
-                {error, notfound} ->
-                    [];
-                {error, E} ->
-                    exit(E)
-            end;
-
-        true ->
-            lists:reverse(lookup_dups(DB,BinKey))
-    end.
-
-lookup_dups(DB,BinKey) ->
-    bdb:with_cursor(DB, 
-      fun(Cursor) ->
-        case bdb_nifs:cursor_get(Cursor, BinKey, [set]) of
-            {ok, _, BinTuple} ->
-                Tuple = binary_to_term(BinTuple),
-                lookup_next_dups(Cursor, BinKey, [Tuple]);
-            {error, notfound} ->
-                [];
-            {error, _} = E ->
-                E
-        end
-      end).
-
-lookup_next_dups(Cursor, BinKey, Rest) ->
-    case bdb_nifs:cursor_get(Cursor, BinKey, [next_dup]) of
-        {ok, BinKey, BinTuple} ->
-            Tuple = binary_to_term(BinTuple),
-            lookup_next_dups(Cursor, BinKey, [Tuple | Rest]);
-        {ok, _, _} ->
-            Rest;
-        {error, notfound} ->
-            Rest;
-        {error, keyempty} ->
-            Rest;
-        {error, _} = E ->
+    case bdb:lookup(DB, BinKey) of
+        {error, _}=E ->
             E;
-        X -> exit({'huh?', X})
+        List ->
+            [ binary_to_term(E) || E <- List ]
     end.
 
 match(DB, Pattern) ->
