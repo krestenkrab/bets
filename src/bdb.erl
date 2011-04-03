@@ -73,7 +73,7 @@ with_cursor(#db{store=Store}=DB,Fun) ->
 
 -spec fold(fun( (binary(), Acc) -> Acc ), Acc, #db{}) -> Acc.
 
-fold(Fun,Acc,DB) ->
+fold(Fun,Acc,#db{method=btree}=DB) ->
     bdb:fold(fun(Bin,A0) ->
                      Fun(Bin,A0)
              end,
@@ -103,11 +103,11 @@ fold(Fun,Acc,KeyPrefix,#db{method=btree}=DB) when is_binary(KeyPrefix) ->
                        fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc2);
 
                    {ok, _, _} ->
-                       [];
+                       Acc;
                    {error, notfound} ->
-                       [];
+                       Acc;
                    {error, keyempty} ->
-                       [];
+                       Acc;
                    {error, _} = E ->
                        exit(E)
                end
