@@ -19,13 +19,23 @@
 
 -export([fold/3, fold/4, lookup/2]).
 
--export([transactional/2,transaction/2,with_cursor/2,current/1]).
+-export([transactional/2,transaction/2,transaction/3,with_cursor/2,current/1]).
 
 -include("bdb_internal.hrl").
 
-transaction(#db{env=Env},Fun) ->
+transaction(DB,Fun) ->
+    transaction(DB,Fun,infinity).
+
+transaction(DB,Fun,Retries) ->
 
     OldTX = erlang:get(?CURRENT_TX),
+    try
+        transaction(DB,Fun,Retries,OldTX)
+    after
+        erlang:put(?CURRENT_TX, OldTX)
+    end.
+
+transaction(#db{env=Env}=DB,Fun,Retries,OldTX) ->
 
     {ok, Txn} = bdb_nifs:txn_begin(Env, txfind(Env,OldTX), []),
     try
@@ -36,10 +46,22 @@ transaction(#db{env=Env},Fun) ->
     catch
         Class:Reason ->
             bdb_nifs:txn_abort(Txn),
-            erlang:raise(Class, Reason, erlang:get_stacktrace())
-    after
-        erlang:put(?CURRENT_TX, OldTX)
+            erlang:put(?CURRENT_TX, OldTX),
+
+            case Retries of
+                infinity ->
+                    erlang:yield(),
+                    transaction(DB,Fun,infinity,OldTX);
+
+                N when N>1 ->
+                    erlang:yield(),
+                    transaction(DB,Fun,N-1,OldTX);
+
+                _ ->
+                    erlang:raise(Class, Reason, erlang:get_stacktrace())
+            end
     end.
+
 
 current(#db{env=Env}) ->
     txfind(Env, erlang:get(?CURRENT_TX)).
