@@ -31,13 +31,13 @@
 process_options(Options, DB, Flags, Method) ->
     case Options of
         [set|R] ->
-            process_options(R, DB#db{ duplicates = false }, Flags, hash);
+            process_options(R, DB#db{ duplicates=false, method=hash }, Flags, hash);
         [bag|R] ->
-            process_options(R, DB#db{ duplicates = true }, Flags, hash);
+            process_options(R, DB#db{ duplicates=true, method=hash }, Flags, hash);
         [ordered_set|R] ->
-            process_options(R, DB#db{ duplicates = false }, Flags, btree);
+            process_options(R, DB#db{ duplicates=false, method=btree }, Flags, btree);
         [ordered_bag|R] ->
-            process_options(R, DB#db{ duplicates = true }, Flags, btree);
+            process_options(R, DB#db{ duplicates=true, method=btree }, Flags, btree);
         [{keypos,N}|R] ->
             process_options(R, DB#db{ keypos=N }, Flags, Method);
 
@@ -129,11 +129,10 @@ select(#db{keypos=KeyIndex}=DB, MatchSpec) ->
     end.
 
 fold(Fun,Acc,DB) ->
-    bdb:fold(fun(Bin,A0) -> 
-                     Fun(erlang:binary_to_term(Bin),A0) 
+    bdb:fold(fun(Bin,A0) ->
+                     Fun(erlang:binary_to_term(Bin),A0)
              end,
              Acc,
-             <<>>,
              DB).
 
 

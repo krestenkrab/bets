@@ -24,5 +24,6 @@
           keypos = 1         :: pos_integer(),
           duplicates = false :: boolean(),
           data_file          :: string(),
-          data_base          :: string() | undefined
+          data_base          :: string() | undefined,
+          method             :: btree | hash
          }).

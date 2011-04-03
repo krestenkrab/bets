@@ -17,7 +17,7 @@
 %% limitations under the License.
 %%
 
--export([fold/4, lookup/2]).
+-export([fold/3, fold/4, lookup/2]).
 
 -export([transactional/2,transaction/2,with_cursor/2,current/1]).
 
@@ -52,7 +52,10 @@ txfind(E,[{_,_}|R]) ->
 txfind(_,_) ->
     undefined.
 
-
+%%@doc
+%% Run `Fun' transactionally on `DB'; either in a new transaction
+%% or in the current if there is such.
+%%@end
 transactional(DB,Fun) ->
     case current(DB) of
         undefined -> transaction(DB,Fun);
@@ -67,10 +70,23 @@ with_cursor(#db{store=Store}=DB,Fun) ->
         bdb_nifs:cursor_close(Cursor)
     end.
 
+
+-spec fold(fun( (binary(), Acc) -> Acc ), Acc, #db{}) -> Acc.
+
+fold(Fun,Acc,DB) ->
+    bdb:fold(fun(Bin,A0) ->
+                     Fun(Bin,A0)
+             end,
+             Acc,
+             <<>>,
+             DB).
+
 %%@doc
 %% fold/4 folds over all elements with a given prefix
+%%@spec fold(Fun::fun( (binary(), Acc) -> Acc ), Acc, Prefix::binary(), DB::#db{}) -> Acc
 %%@end
-fold(Fun,Acc,KeyPrefix,#db{}=DB) when is_binary(KeyPrefix) ->
+-spec fold(Fun::fun( (binary(), Acc) -> Acc ), Acc, Prefix::binary(), DB::#db{}) -> Acc.
+fold(Fun,Acc,KeyPrefix,#db{method=btree}=DB) when is_binary(KeyPrefix) ->
     PrefixLen = byte_size(KeyPrefix),
     with_cursor (DB,
        fun(Cursor) ->
@@ -97,6 +113,10 @@ fold(Fun,Acc,KeyPrefix,#db{}=DB) when is_binary(KeyPrefix) ->
                end
        end).
 
+%%
+%% Internal function.  Given Cursor is at some key/value; this folds over
+%% duplicate elements with the same key.
+%%
 fold_dups(Cursor, BinKey, Fun, Acc) ->
     case bdb_nifs:cursor_get(Cursor, BinKey, [next_dup]) of
         {ok, BinKey, BinValue} ->
@@ -112,6 +132,9 @@ fold_dups(Cursor, BinKey, Fun, Acc) ->
             exit(E)
     end.
 
+%%
+%% Internal function. Implements fold beyone the first key.
+%%
 fold_prefix_next(DB, Fun, Cursor, KeyPrefix, PrefixLen, Acc) ->
     case bdb_nifs:cursor_get(Cursor, <<>>, [next]) of
         {ok, <<KeyPrefix:PrefixLen/binary, _/binary>>=BinKey, BinValue} ->
