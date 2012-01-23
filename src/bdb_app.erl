@@ -28,7 +28,7 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    ebdb_sup:start_link().
+    bdb_sup:start_link().
 
 stop(_State) ->
     ok.
